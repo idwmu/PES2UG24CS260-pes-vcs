@@ -179,8 +179,6 @@ int head_update(const ObjectID *new_commit) {
     return rename(tmp_path, target_path);
 }
 
-// ─── TODO: Implement these ───────────────────────────────────────────────────
-
 // Create a new commit from the current staging area.
 //
 // HINTS - Useful functions to call:
@@ -194,36 +192,8 @@ int head_update(const ObjectID *new_commit) {
 //
 // Returns 0 on success, -1 on error.
 int commit_create(const char *message, ObjectID *commit_id_out) {
-    // Step 1: Build the tree object from the current index
-    ObjectID tree_id;
-    if (tree_from_index(&tree_id) != 0) {
-        fprintf(stderr, "error: nothing staged to commit\n");
-        return -1;
-    }
-
-    // Step 2: Populate the Commit struct
-    Commit c;
-    memset(&c, 0, sizeof(c));
-    c.tree = tree_id;
-    c.timestamp = (uint64_t)time(NULL);
-    snprintf(c.author, sizeof(c.author), "%s", pes_author());
-    snprintf(c.message, sizeof(c.message), "%s", message);
-
-    // Step 3: Check for a parent commit (HEAD). First commit has none.
-    c.has_parent = (head_read(&c.parent) == 0) ? 1 : 0;
-
-    // Step 4: Serialize the commit struct to text
-    void *commit_data;
-    size_t commit_len;
-    if (commit_serialize(&c, &commit_data, &commit_len) != 0) return -1;
-
-    // Step 5: Write the commit object to the object store
-    if (object_write(OBJ_COMMIT, commit_data, commit_len, commit_id_out) != 0) {
-        free(commit_data);
-        return -1;
-    }
-    free(commit_data);
-
-    // Step 6: Update HEAD (and the current branch ref) to point to this commit
-    return head_update(commit_id_out);
+    // TODO: Implement commit creation
+    // (See Lab Appendix for logical steps)
+    (void)message; (void)commit_id_out;
+    return -1;
 }
