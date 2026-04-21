@@ -1,4 +1,3 @@
-// .pes/objects/XX/YYYYYY... where XX is the first two hex characters of the
 // hash (directory sharding).
 
 //:)
