@@ -164,6 +164,7 @@ int index_load(Index *index) {
     return 0;
 }
 
+// Save the index to .pes/index atomically.
 //
 // HINTS - Useful functions and syscalls:
 //   - qsort                            : sorting the entries array by path
