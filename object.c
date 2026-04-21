@@ -1,6 +1,3 @@
-
-// Every piece of data (file contents, directory listings, commits) is stored
-// as an "object" named by its SHA-256 hash. Objects are stored under
 // .pes/objects/XX/YYYYYY... where XX is the first two hex characters of the
 // hash (directory sharding).
 
