@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -94,9 +95,82 @@ int object_exists(const ObjectID *id) {
 //
 // Returns 0 on success, -1 on error.
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
-    // TODO: Implement
-    (void)type; (void)data; (void)len; (void)id_out;
-    return -1;
+    // Map type enum to string
+    const char *type_str;
+    switch (type) {
+        case OBJ_BLOB:   type_str = "blob";   break;
+        case OBJ_TREE:   type_str = "tree";   break;
+        case OBJ_COMMIT: type_str = "commit"; break;
+        default: return -1;
+    }
+
+    // Build header: "type size" (without the \0 yet — snprintf adds one but
+    // we capture the byte length and embed the \0 manually below)
+    char header_str[64];
+    int header_len = snprintf(header_str, sizeof(header_str), "%s %zu", type_str, len);
+    if (header_len < 0 || (size_t)header_len >= sizeof(header_str)) return -1;
+
+    // Allocate full buffer: header bytes + '\0' separator + data
+    size_t full_len = (size_t)header_len + 1 + len;
+    unsigned char *buf = malloc(full_len);
+    if (!buf) return -1;
+
+    memcpy(buf, header_str, (size_t)header_len);   // "blob 16"
+    buf[header_len] = '\0';                          // literal null byte separator
+    memcpy(buf + header_len + 1, data, len);         // raw data
+
+    // Hash the FULL buffer (header + '\0' + data)
+    compute_hash(buf, full_len, id_out);
+
+    // Deduplication: if already stored, skip write
+    if (object_exists(id_out)) {
+        free(buf);
+        return 0;
+    }
+
+    // Build paths
+    char hex[HASH_HEX_SIZE + 1];
+    hash_to_hex(id_out, hex);
+
+    char shard_dir[512];
+    snprintf(shard_dir, sizeof(shard_dir), "%s/%.2s", OBJECTS_DIR, hex);
+
+    char final_path[512];
+    object_path(id_out, final_path, sizeof(final_path));
+
+    char tmp_path[520];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", final_path);
+
+    // Create shard directory (ignore EEXIST)
+    if (mkdir(shard_dir, 0755) < 0 && errno != EEXIST) {
+        free(buf);
+        return -1;
+    }
+
+    // Write to temp file (mode 0644: immutable once written, like Git)
+    int fd = open(tmp_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd < 0) { free(buf); return -1; }
+
+    size_t written = 0;
+    while (written < full_len) {
+        ssize_t n = write(fd, buf + written, full_len - written);
+        if (n < 0) { close(fd); unlink(tmp_path); free(buf); return -1; }
+        written += (size_t)n;
+    }
+
+    free(buf);
+
+    if (fsync(fd) < 0) { close(fd); unlink(tmp_path); return -1; }
+    close(fd);
+
+    // Atomic rename temp -> final path
+    if (rename(tmp_path, final_path) < 0) { unlink(tmp_path); return -1; }
+
+    // fsync the shard directory to persist the directory entry
+    int dir_fd = open(shard_dir, O_RDONLY);
+    if (dir_fd >= 0) { fsync(dir_fd); close(dir_fd); }
+
+    return 0;
 }
 
 // Read an object from the store.
@@ -122,7 +196,5 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
 // The caller is responsible for calling free(*data_out).
 // Returns 0 on success, -1 on error (file not found, corrupt, etc.).
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
-    // TODO: Implement
-    (void)id; (void)type_out; (void)data_out; (void)len_out;
-    return -1;
+ 
 }
