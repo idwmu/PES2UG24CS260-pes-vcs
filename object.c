@@ -196,5 +196,79 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
 // The caller is responsible for calling free(*data_out).
 // Returns 0 on success, -1 on error (file not found, corrupt, etc.).
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
- 
+    // Step 1: Resolve the path and open the file
+    char path[512];
+    object_path(id, path, sizeof(path));
+
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+
+    // Step 2: Read the entire file into memory
+    if (fseek(f, 0, SEEK_END) < 0) { fclose(f); return -1; }
+    long file_sz = ftell(f);
+    if (file_sz < 0) { fclose(f); return -1; }
+    rewind(f);
+
+    unsigned char *buf = malloc((size_t)file_sz);
+    if (!buf) { fclose(f); return -1; }
+
+    if (fread(buf, 1, (size_t)file_sz, f) != (size_t)file_sz) {
+        free(buf); fclose(f); return -1;
+    }
+    fclose(f);
+
+    // Step 3: Integrity check — recompute hash over ALL bytes and compare to *id
+    ObjectID computed;
+    compute_hash(buf, (size_t)file_sz, &computed);
+    if (memcmp(computed.hash, id->hash, HASH_SIZE) != 0) {
+        free(buf); return -1;   // corruption detected
+    }
+
+    // Step 4: Find the '\0' separator between header and data
+    // Use memchr (not strchr): the data section may itself contain '\0' bytes.
+    unsigned char *null_pos = memchr(buf, '\0', (size_t)file_sz);
+    if (!null_pos) { free(buf); return -1; }   // malformed: no separator
+
+    // Step 5: Parse the header "type size" in a separate null-terminated buffer
+    size_t header_len = (size_t)(null_pos - buf);
+    char header[128];
+    if (header_len >= sizeof(header)) { free(buf); return -1; }
+    memcpy(header, buf, header_len);
+    header[header_len] = '\0';
+
+    // Split "blob 42" → type_str, size_str
+    char *space = strchr(header, ' ');
+    if (!space) { free(buf); return -1; }
+    *space = '\0';
+    const char *type_str = header;
+    const char *size_str = space + 1;
+
+    // Parse declared data size
+    char *end_ptr;
+    size_t declared_len = (size_t)strtoul(size_str, &end_ptr, 10);
+    if (*end_ptr != '\0') { free(buf); return -1; }  // trailing garbage
+
+    // Cross-check declared length vs actual bytes after '\0'
+    size_t actual_data_len = (size_t)file_sz - header_len - 1;
+    if (declared_len != actual_data_len) { free(buf); return -1; }
+
+    // Step 6: Map type string → ObjectType enum
+    ObjectType otype;
+    if      (strcmp(type_str, "blob")   == 0) otype = OBJ_BLOB;
+    else if (strcmp(type_str, "tree")   == 0) otype = OBJ_TREE;
+    else if (strcmp(type_str, "commit") == 0) otype = OBJ_COMMIT;
+    else { free(buf); return -1; }
+
+    // Step 7: Allocate and copy the data portion (bytes after the '\0')
+    void *out = malloc(declared_len + 1);  // +1: convenience null for string callers
+    if (!out) { free(buf); return -1; }
+    memcpy(out, null_pos + 1, declared_len);
+    ((char *)out)[declared_len] = '\0';
+
+    free(buf);
+
+    *type_out = otype;
+    *data_out = out;
+    *len_out  = declared_len;
+    return 0;
 }
