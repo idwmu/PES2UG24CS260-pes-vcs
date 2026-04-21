@@ -179,6 +179,8 @@ int head_update(const ObjectID *new_commit) {
     return rename(tmp_path, target_path);
 }
 
+// ─── TODO: Implement these ───────────────────────────────────────────────────
+
 // Create a new commit from the current staging area.
 //
 // HINTS - Useful functions to call:
